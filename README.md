@@ -38,7 +38,7 @@ Switch between AmbroseValley, GrandRift, and Lockdown. Compare heatmaps, kill co
 
 Scroll to zoom into any zone. Drag to pan. The map stays in frame no matter how fast you zoom. Works identically on trackpad and mouse.
 
----
+For detailed workflows showing how a Level Designer uses this tool — see **[USER_JOURNEYS.md](./USER_JOURNEYS.md)**.
 
 ## How It Works (Brief)
 
@@ -110,5 +110,6 @@ No env vars. No backend. No database.
 ├── preprocess.py
 ├── ARCHITECTURE.md
 ├── INSIGHTS.md
+├── USER_JOURNEYS.md
 └── README.md
 ```
