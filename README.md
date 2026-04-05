@@ -1,6 +1,6 @@
-# LILA BLACK — Player Journey Visualizer
+# LILA BLACK - Player Journey Visualizer
 
-Level Designers at LILA Games have 5 days of production gameplay data — ~89,000 events across ~1,700 files — but no way to see what's actually happening on their maps. Where do players go? Where do they fight? Where do they die? Which zones get ignored?
+Level Designers at LILA Games have 5 days of production gameplay data - ~89,000 events across ~1,700 files - but no way to see what's actually happening on their maps. Where do players go? Where do they fight? Where do they die? Which zones get ignored?
 
 This tool turns that raw telemetry into something a Level Designer can open in their browser and use immediately.
 
@@ -16,7 +16,7 @@ Open the tool and immediately see a heatmap of where players walk across the map
 
 ### Watch a match unfold
 
-Pick any match, press play, and watch players move across the map in real time. See when the first fights break out, where loot gets picked up, and how the match flows from start to finish. Pause at any moment — everything stays visible.
+Pick any match, press play, and watch players move across the map in real time. See when the first fights break out, where loot gets picked up, and how the match flows from start to finish. Pause at any moment - everything stays visible.
 
 ### Compare human vs bot behavior
 
@@ -24,7 +24,7 @@ Toggle human trails (cyan) and bot trails (amber) independently. Are bots patrol
 
 ### Investigate specific events
 
-Toggle on kill markers, death markers, storm deaths, or loot pickups — each with a unique color and shape. Count badges tell you the volume before you even turn them on. Click any marker (with inspect mode) to see which match and player it belongs to.
+Toggle on kill markers, death markers, storm deaths, or loot pickups - each with a unique color and shape. Count badges tell you the volume before you even turn them on. Click any marker (with inspect mode) to see which match and player it belongs to.
 
 ### Spot patterns across time
 
@@ -38,15 +38,15 @@ Switch between AmbroseValley, GrandRift, and Lockdown. Compare heatmaps, kill co
 
 Scroll to zoom into any zone. Drag to pan. The map stays in frame no matter how fast you zoom. Works identically on trackpad and mouse.
 
-For detailed workflows showing how a Level Designer uses this tool — see **[USER_JOURNEYS.md](./USER_JOURNEYS.md)**.
+For detailed workflows showing how a Level Designer uses this tool - see **[USER_JOURNEYS.md](./USER_JOURNEYS.md)**.
 
 ## How It Works (Brief)
 
 A Python script reads ~1,700 parquet files and outputs a single JSON. The React app loads it in the browser. Everything renders on a single HTML canvas with viewport-based zoom. No backend, no database, no API calls.
 
-For the full technical breakdown — coordinate mapping, data flow, bugs I hit, tradeoffs I made — see **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
+For the full technical breakdown - coordinate mapping, data flow, bugs I hit, tradeoffs I made - see **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
-For three data-backed insights about the game — see **[INSIGHTS.md](./INSIGHTS.md)**.
+For three data-backed insights about the game - see **[INSIGHTS.md](./INSIGHTS.md)**.
 
 ---
 
@@ -69,7 +69,7 @@ Opens at `http://localhost:5173`
 vercel --prod
 ```
 
-Or connect the repo to [Vercel](https://vercel.com) via GitHub — auto-deploys on every push to `main`.
+Or connect the repo to [Vercel](https://vercel.com) via GitHub - auto-deploys on every push to `main`.
 
 ### Re-processing raw data (optional)
 
