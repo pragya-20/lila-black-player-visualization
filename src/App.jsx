@@ -1,13 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-
-/* ═══════════════════════════════════════════════════════════════════════
-   LILA BLACK — Player Journey Visualizer  v6
-   • Big directional arrows on trails
-   • Scroll zoom + drag pan on map
-   • Smooth (blurred) heatmap
-   • Default: heatmap + trails only, markers OFF
-   ═══════════════════════════════════════════════════════════════════════ */
-
 const MAP_CFG = {
   AmbroseValley: {
     scale: 900,
@@ -34,12 +25,15 @@ const MAP_CFG = {
     img: "/Lockdown_Minimap.jpg",
   },
 };
-
-const TRAIL = {
-  human: { r: 0, g: 220, b: 255 },
-  bot: { r: 212, g: 148, b: 58 },
-};
-
+const TRAIL_CLR = { human: [0, 220, 255], bot: [212, 148, 58] };
+const ALL_MARKER_EVTS = [
+  "Kill",
+  "Killed",
+  "BotKill",
+  "BotKilled",
+  "KilledByStorm",
+  "Loot",
+];
 const EVT = {
   Kill: { color: "#ff2d2d", shape: "diamond", label: "PvP Kill" },
   Killed: { color: "#ff6b8a", shape: "diamond", label: "PvP Death" },
@@ -47,33 +41,30 @@ const EVT = {
   BotKilled: { color: "#22d68a", shape: "hexagon", label: "Killed by Bot" },
   KilledByStorm: { color: "#44bbff", shape: "storm", label: "Storm Death" },
   Loot: { color: "#ffd23f", shape: "square", label: "Loot Pickup" },
-  Position: { color: "#00dcff", shape: "dot", label: "Movement" },
-  BotPosition: { color: "#d4943a", shape: "dot", label: "Bot Movement" },
 };
-
 const HEAT_MODES = [
   {
     id: "combat",
     label: "Combat Zones",
     events: ["Kill", "BotKill", "Killed", "BotKilled", "KilledByStorm"],
     colors: [
-      "rgba(255,45,45,0)",
-      "rgba(255,60,30,0.3)",
-      "rgba(255,100,40,0.6)",
-      "rgba(255,160,60,0.85)",
-      "rgba(255,240,120,1)",
+      [255, 45, 45],
+      [255, 100, 40],
+      [255, 160, 60],
+      [255, 220, 80],
+      [255, 250, 130],
     ],
   },
   {
     id: "traffic",
-    label: "Player Traffic",
+    label: "Footfall Density",
     events: ["Position", "BotPosition"],
     colors: [
-      "rgba(0,220,255,0)",
-      "rgba(0,220,255,0.25)",
-      "rgba(60,240,255,0.5)",
-      "rgba(140,255,255,0.75)",
-      "rgba(230,255,255,1)",
+      [180, 80, 180],
+      [220, 60, 220],
+      [255, 40, 255],
+      [255, 120, 255],
+      [255, 200, 255],
     ],
   },
   {
@@ -81,54 +72,50 @@ const HEAT_MODES = [
     label: "Loot Density",
     events: ["Loot"],
     colors: [
-      "rgba(255,210,63,0)",
-      "rgba(255,210,63,0.25)",
-      "rgba(255,220,80,0.5)",
-      "rgba(255,240,120,0.75)",
-      "rgba(255,255,200,1)",
+      [200, 160, 30],
+      [255, 210, 63],
+      [255, 230, 100],
+      [255, 245, 150],
+      [255, 255, 210],
     ],
   },
 ];
-
 const EMPTY = { events: [], matches: [], dates: [] };
-
 function w2p(x, z, mapId, sz) {
   const c = MAP_CFG[mapId];
   if (!c) return [0, 0];
   return [((x - c.ox) / c.scale) * sz, (1 - (z - c.oz) / c.scale) * sz];
 }
-
 function drawArrow(ctx, x1, y1, x2, y2, color, size) {
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const mx = (x1 + x2) / 2,
+  const a = Math.atan2(y2 - y1, x2 - x1),
+    mx = (x1 + x2) / 2,
     my = (y1 + y2) / 2;
   ctx.save();
   ctx.translate(mx, my);
-  ctx.rotate(angle);
+  ctx.rotate(a);
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(size * 1.2, 0);
-  ctx.lineTo(-size * 0.8, -size * 0.7);
-  ctx.lineTo(-size * 0.2, 0);
-  ctx.lineTo(-size * 0.8, size * 0.7);
+  ctx.moveTo(size * 1.3, 0);
+  ctx.lineTo(-size * 0.7, -size * 0.75);
+  ctx.lineTo(-size * 0.15, 0);
+  ctx.lineTo(-size * 0.7, size * 0.75);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
 }
-
 function drawStorm(ctx, px, py, size, color) {
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
   ctx.lineCap = "round";
   ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
+  ctx.shadowBlur = 14;
   ctx.beginPath();
   for (let i = 0; i < 28; i++) {
     const t = i / 28,
-      r = size * (1 - t * 0.55);
-    const a = t * Math.PI * 3.5 - Math.PI / 2;
-    const sx = px + Math.cos(a) * r,
+      r = size * (1 - t * 0.55),
+      a = t * Math.PI * 3.5 - Math.PI / 2,
+      sx = px + Math.cos(a) * r,
       sy = py - t * size * 2 + size * 0.6;
     i === 0 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
   }
@@ -140,7 +127,6 @@ function drawStorm(ctx, px, py, size, color) {
   ctx.shadowBlur = 0;
   ctx.restore();
 }
-
 function drawMarker(ctx, px, py, shape, size, color) {
   if (shape === "storm") {
     drawStorm(ctx, px, py, size, color);
@@ -172,7 +158,6 @@ function drawMarker(ctx, px, py, shape, size, color) {
   ctx.fill();
   ctx.shadowBlur = 0;
 }
-
 function drawIcon(ctx, px, py, isBot, sz, alpha) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -233,35 +218,6 @@ function drawIcon(ctx, px, py, isBot, sz, alpha) {
   }
   ctx.restore();
 }
-
-function buildHeat(evts, mode, mapId, sz) {
-  const m = HEAT_MODES.find((h) => h.id === mode);
-  if (!m) return null;
-  const gs = Math.ceil(sz / 3);
-  const grid = new Float32Array(gs * gs);
-  let peak = 0;
-  const R = 8;
-  for (const e of evts) {
-    if (!m.events.includes(e.evt)) continue;
-    const [px, py] = w2p(e.x, e.z, mapId, sz);
-    const gx = Math.floor(px / 3),
-      gy = Math.floor(py / 3);
-    for (let dy = -R; dy <= R; dy++)
-      for (let dx = -R; dx <= R; dx++) {
-        const nx = gx + dx,
-          ny = gy + dy;
-        if (nx < 0 || nx >= gs || ny < 0 || ny >= gs) continue;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d > R) continue;
-        const idx = ny * gs + nx;
-        grid[idx] += Math.exp((-d * d) / (R * 0.55));
-        if (grid[idx] > peak) peak = grid[idx];
-      }
-  }
-  return { grid, gs, peak, colors: m.colors };
-}
-
-// ══════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -269,35 +225,28 @@ export default function App() {
   const [selMap, setSelMap] = useState("AmbroseValley");
   const [selDate, setSelDate] = useState("all");
   const [selMatch, setSelMatch] = useState("all");
-  const [showBots, setShowBots] = useState(true);
-  // DEFAULT: markers OFF — only heatmap + trails on load
-  const [activeEvts, setActiveEvts] = useState(
-    new Set(["Position", "BotPosition"]),
-  );
-  const [heatMode, setHeatMode] = useState("combat");
-  const [heatOpacity, setHeatOpacity] = useState(0.8);
   const [selPlayer, setSelPlayer] = useState(null);
   const [tab, setTab] = useState("filters");
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [mapSz, setMapSz] = useState(620);
-
-  // ZOOM + PAN state
+  const [showHumanTrails, setShowHumanTrails] = useState(false);
+  const [showBotTrails, setShowBotTrails] = useState(false);
+  const [activeEvts, setActiveEvts] = useState(new Set());
+  const [userDisabled, setUserDisabled] = useState(new Set());
+  const [heatMode, setHeatMode] = useState("traffic");
+  const [heatOpacity, setHeatOpacity] = useState(0.85);
   const [zoom, setZoom] = useState(1);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
+  const [camX, setCamX] = useState(0);
+  const [camY, setCamY] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
+  const dragRef = useRef({ sx: 0, sy: 0, cx: 0, cy: 0 });
   const animRef = useRef(null);
-  const trailRef = useRef(null),
-    eventRef = useRef(null),
-    heatRef = useRef(null),
-    iconRef = useRef(null);
-  const containerRef = useRef(null),
-    mapWrapRef = useRef(null);
-
+  const mainCanvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const mapImgRef = useRef(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
   useEffect(() => {
     fetch("/game_data.json")
       .then((r) => {
@@ -313,7 +262,19 @@ export default function App() {
         setLoading(false);
       });
   }, []);
-
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      mapImgRef.current = img;
+      setImgLoaded(true);
+    };
+    img.onerror = () => {
+      mapImgRef.current = null;
+      setImgLoaded(true);
+    };
+    img.src = MAP_CFG[selMap].img;
+    setImgLoaded(false);
+  }, [selMap]);
   useEffect(() => {
     const fn = () => {
       if (containerRef.current) {
@@ -327,45 +288,39 @@ export default function App() {
     window.addEventListener("resize", fn);
     return () => window.removeEventListener("resize", fn);
   }, []);
-
-  // Zoom handler
   const handleWheel = useCallback((e) => {
     e.preventDefault();
-    const rect = mapWrapRef.current?.getBoundingClientRect();
+    const rect = mainCanvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const mx = e.clientX - rect.left,
       my = e.clientY - rect.top;
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom((z) => {
-      const nz = Math.min(6, Math.max(1, z * delta));
-      // Adjust pan to zoom toward mouse position
-      const scale = nz / z;
-      setPanX((px) => (px - mx) * scale + mx);
-      setPanY((py) => (py - my) * scale + my);
+    setZoom((pz) => {
+      const f = e.deltaY > 0 ? 0.92 : 1.08,
+        nz = Math.min(8, Math.max(1, pz * f)),
+        r = nz / pz;
+      setCamX((cx) => (cx - mx) * r + mx);
+      setCamY((cy) => (cy - my) * r + my);
       return nz;
     });
   }, []);
-
   const handleMouseDown = useCallback(
     (e) => {
       if (zoom <= 1) return;
+      e.preventDefault();
       setDragging(true);
-      setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
+      dragRef.current = { sx: e.clientX, sy: e.clientY, cx: camX, cy: camY };
     },
-    [zoom, panX, panY],
+    [zoom, camX, camY],
   );
-
   const handleMouseMove = useCallback(
     (e) => {
       if (!dragging) return;
-      setPanX(e.clientX - dragStart.x);
-      setPanY(e.clientY - dragStart.y);
+      setCamX(dragRef.current.cx + e.clientX - dragRef.current.sx);
+      setCamY(dragRef.current.cy + e.clientY - dragRef.current.sy);
     },
-    [dragging, dragStart],
+    [dragging],
   );
-
   const handleMouseUp = useCallback(() => setDragging(false), []);
-
   useEffect(() => {
     if (dragging) {
       window.addEventListener("mousemove", handleMouseMove);
@@ -376,13 +331,11 @@ export default function App() {
       };
     }
   }, [dragging, handleMouseMove, handleMouseUp]);
-
-  const resetZoom = () => {
+  const resetView = useCallback(() => {
     setZoom(1);
-    setPanX(0);
-    setPanY(0);
-  };
-
+    setCamX(0);
+    setCamY(0);
+  }, []);
   const safe = data || EMPTY;
   const fMatches = useMemo(
     () =>
@@ -391,7 +344,6 @@ export default function App() {
       ),
     [safe.matches, selMap, selDate],
   );
-
   const allMapEvents = useMemo(
     () =>
       safe.events.filter((e) => {
@@ -402,29 +354,28 @@ export default function App() {
       }),
     [safe.events, selMap, selDate, selMatch],
   );
-
   const evtCounts = useMemo(() => {
     const c = {};
     for (const e of allMapEvents) c[e.evt] = (c[e.evt] || 0) + 1;
     return c;
   }, [allMapEvents]);
-
   const fEvents = useMemo(
     () =>
-      safe.events.filter((e) => {
-        if (e.map !== selMap) return false;
-        if (selDate !== "all" && e.date !== selDate) return false;
-        if (selMatch !== "all" && e.mid !== selMatch) return false;
-        if (!showBots && e.bot) return false;
-        if (e.evt === "BotPosition") {
-          if (!showBots) return false;
-        } else if (!activeEvts.has(e.evt)) return false;
+      allMapEvents.filter((e) => {
+        const isPos = e.evt === "Position" || e.evt === "BotPosition";
+        if (isPos) {
+          if (e.bot && !showBotTrails) return false;
+          if (!e.bot && !showHumanTrails) return false;
+        } else {
+          if (!activeEvts.has(e.evt)) return false;
+          if ((e.evt === "BotKill" || e.evt === "BotKilled") && !showBotTrails)
+            return false;
+        }
         if (selPlayer && e.uid !== selPlayer) return false;
         return true;
       }),
-    [safe.events, selMap, selDate, selMatch, showBots, activeEvts, selPlayer],
+    [allMapEvents, showHumanTrails, showBotTrails, activeEvts, selPlayer],
   );
-
   const timeRange = useMemo(() => {
     if (fEvents.length === 0) return [0, 1];
     let mn = Infinity,
@@ -436,13 +387,11 @@ export default function App() {
     return [mn, mx];
   }, [fEvents]);
   const cutTs = timeRange[0] + (timeRange[1] - timeRange[0]) * progress;
-
   const visEvents = useMemo(() => {
     if (!playing && progress === 0) return fEvents;
     if (!playing && progress >= 1) return fEvents;
     return fEvents.filter((e) => e.ts <= cutTs);
   }, [fEvents, playing, progress, cutTs]);
-
   const stats = useMemo(() => {
     let k = 0,
       d = 0,
@@ -473,7 +422,6 @@ export default function App() {
       total: allMapEvents.length,
     };
   }, [allMapEvents]);
-
   const playerList = useMemo(() => {
     const m = {};
     for (const e of visEvents) {
@@ -490,9 +438,60 @@ export default function App() {
     }
     return Object.values(m).sort((a, b) => b.n - a.n);
   }, [visEvents]);
-
   const isSingleMatch = selMatch !== "all";
-
+  const selectMatch = useCallback(
+    (mid) => {
+      setSelMatch(mid);
+      setSelPlayer(null);
+      setProgress(0);
+      setPlaying(false);
+      if (mid !== "all") {
+        setShowHumanTrails(true);
+        setShowBotTrails(true);
+        setActiveEvts(
+          new Set(ALL_MARKER_EVTS.filter((e) => !userDisabled.has(e))),
+        );
+      } else {
+        setShowHumanTrails(false);
+        setShowBotTrails(false);
+        setActiveEvts(new Set());
+      }
+    },
+    [userDisabled],
+  );
+  const selectPlayer = useCallback(
+    (pid) => {
+      setSelPlayer((prev) => {
+        const next = prev === pid ? null : pid;
+        if (next) {
+          setShowHumanTrails(true);
+          setShowBotTrails(true);
+          setActiveEvts(
+            new Set(ALL_MARKER_EVTS.filter((e) => !userDisabled.has(e))),
+          );
+        }
+        return next;
+      });
+    },
+    [userDisabled],
+  );
+  const toggleEvt = useCallback((evt) => {
+    setActiveEvts((prev) => {
+      const n = new Set(prev);
+      if (n.has(evt)) {
+        n.delete(evt);
+        setUserDisabled((ud) => new Set([...ud, evt]));
+      } else {
+        n.add(evt);
+        setUserDisabled((ud) => {
+          const nu = new Set(ud);
+          nu.delete(evt);
+          return nu;
+        });
+      }
+      return n;
+    });
+  }, []);
   useEffect(() => {
     if (!playing) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
@@ -518,89 +517,134 @@ export default function App() {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
   }, [playing, speed]);
-
-  // ═══ CANVAS: TRAILS + BIG DIRECTIONAL ARROWS ═══
+  // ═══ SINGLE CANVAS RENDER ═══
   useEffect(() => {
-    const c = trailRef.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    c.width = mapSz;
-    c.height = mapSz;
-    ctx.clearRect(0, 0, mapSz, mapSz);
-    ctx.strokeStyle = "rgba(255,255,255,0.03)";
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 10; i++) {
-      const p = (i / 10) * mapSz;
-      ctx.beginPath();
-      ctx.moveTo(p, 0);
-      ctx.lineTo(p, mapSz);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, p);
-      ctx.lineTo(mapSz, p);
-      ctx.stroke();
+    const canvas = mainCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const sz = mapSz;
+    canvas.width = sz;
+    canvas.height = sz;
+    ctx.clearRect(0, 0, sz, sz);
+    ctx.save();
+    ctx.translate(camX, camY);
+    ctx.scale(zoom, zoom);
+    // BG
+    ctx.fillStyle = "#0a0a10";
+    ctx.fillRect(-camX / zoom, -camY / zoom, sz / zoom + 10, sz / zoom + 10);
+    // Minimap
+    if (mapImgRef.current) {
+      ctx.globalAlpha = 0.5;
+      ctx.drawImage(mapImgRef.current, 0, 0, sz, sz);
+      ctx.globalAlpha = 1;
     }
-
+    // TRAILS
     const byP = {};
     for (const e of visEvents) {
       if (e.evt !== "Position" && e.evt !== "BotPosition") continue;
       if (!byP[e.uid]) byP[e.uid] = [];
       byP[e.uid].push(e);
     }
-
     for (const [uid, evts] of Object.entries(byP)) {
       const s = evts.sort((a, b) => a.ts - b.ts);
       if (s.length < 2) continue;
       const isBot = s[0].bot,
         isSel = selPlayer === uid;
-      const t = isBot ? TRAIL.bot : TRAIL.human;
-      const baseAlpha = isSel ? 0.95 : isBot ? 0.4 : 0.6;
-      ctx.lineWidth = isSel ? 3.5 : isBot ? 1.5 : 2.5;
-      ctx.setLineDash(isBot ? [5, 6] : []);
+      const tc = isBot ? TRAIL_CLR.bot : TRAIL_CLR.human;
+      const bA = isSel ? 0.95 : isBot ? 0.4 : 0.6;
+      ctx.lineWidth = (isSel ? 3.5 : isBot ? 1.5 : 2.5) / zoom;
+      ctx.setLineDash(isBot ? [5 / zoom, 6 / zoom] : []);
       ctx.lineCap = "round";
-
-      const pts = s.map((e) => w2p(e.x, e.z, selMap, mapSz));
+      const pts = s.map((e) => w2p(e.x, e.z, selMap, sz));
       for (let i = 1; i < pts.length; i++) {
-        const frac = i / (pts.length - 1);
-        const alpha = baseAlpha * (0.45 + 0.55 * frac);
-        ctx.strokeStyle = `rgba(${t.r},${t.g},${t.b},${alpha})`;
+        const f = i / (pts.length - 1),
+          a = bA * (0.45 + 0.55 * f);
+        ctx.strokeStyle = `rgba(${tc[0]},${tc[1]},${tc[2]},${a})`;
         ctx.beginPath();
         ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
         ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.stroke();
       }
       ctx.setLineDash([]);
-
-      // BIG directional arrows every ~4 segments
       const interval = Math.max(3, Math.floor(pts.length / 7));
       for (let i = interval; i < pts.length; i += interval) {
         const [x1, y1] = pts[i - 1],
           [x2, y2] = pts[i];
-        const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-        if (dist < 4) continue;
-        const frac = i / (pts.length - 1);
-        const aa = baseAlpha * (0.7 + 0.3 * frac);
-        const bright = `rgba(${Math.min(255, t.r + 50)},${Math.min(255, t.g + 50)},${Math.min(255, t.b + 50)},${aa})`;
-        // Arrow size: 8-12px depending on selection
-        drawArrow(ctx, x1, y1, x2, y2, bright, isSel ? 12 : isBot ? 8 : 10);
+        if (Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) < 3) continue;
+        const f = i / (pts.length - 1),
+          aa = bA * (0.7 + 0.3 * f);
+        const bc = `rgba(${Math.min(255, tc[0] + 50)},${Math.min(255, tc[1] + 50)},${Math.min(255, tc[2] + 50)},${aa})`;
+        drawArrow(
+          ctx,
+          x1,
+          y1,
+          x2,
+          y2,
+          bc,
+          (isSel ? 12 : isBot ? 8 : 10) / zoom,
+        );
       }
     }
-  }, [visEvents, selMap, mapSz, selPlayer]);
-
-  // ═══ CANVAS: EVENT MARKERS ═══
-  useEffect(() => {
-    const c = eventRef.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    c.width = mapSz;
-    c.height = mapSz;
-    ctx.clearRect(0, 0, mapSz, mapSz);
+    // HEATMAP (above trails)
+    if (heatMode) {
+      const hm = HEAT_MODES.find((h) => h.id === heatMode);
+      if (hm) {
+        const gs = Math.ceil(sz / 3),
+          grid = new Float32Array(gs * gs);
+        let peak = 0;
+        const R = 8;
+        for (const e of allMapEvents) {
+          if (!hm.events.includes(e.evt)) continue;
+          const [px, py] = w2p(e.x, e.z, selMap, sz);
+          const gx = Math.floor(px / 3),
+            gy = Math.floor(py / 3);
+          for (let dy = -R; dy <= R; dy++)
+            for (let dx = -R; dx <= R; dx++) {
+              const nx = gx + dx,
+                ny = gy + dy;
+              if (nx < 0 || nx >= gs || ny < 0 || ny >= gs) continue;
+              const d = Math.sqrt(dx * dx + dy * dy);
+              if (d > R) continue;
+              const idx = ny * gs + nx;
+              grid[idx] += Math.exp((-d * d) / (R * 0.5));
+              if (grid[idx] > peak) peak = grid[idx];
+            }
+        }
+        if (peak > 0) {
+          const off = document.createElement("canvas");
+          off.width = sz;
+          off.height = sz;
+          const oc = off.getContext("2d");
+          const cs = sz / gs;
+          for (let y = 0; y < gs; y++)
+            for (let x = 0; x < gs; x++) {
+              const v = grid[y * gs + x];
+              if (v < 0.01) continue;
+              const t = Math.min(1, v / peak),
+                intensity = Math.pow(t, 0.5);
+              const ci = Math.min(
+                Math.floor(intensity * (hm.colors.length - 1)),
+                hm.colors.length - 1,
+              );
+              const rgb = hm.colors[ci];
+              oc.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+              oc.globalAlpha = heatOpacity * (0.2 + 0.8 * intensity);
+              oc.fillRect(x * cs, y * cs, cs + 1, cs + 1);
+            }
+          oc.globalAlpha = 1;
+          ctx.filter = `blur(${8 / zoom}px)`;
+          ctx.drawImage(off, 0, 0);
+          ctx.filter = "none";
+        }
+      }
+    }
+    // MARKERS
     for (const e of visEvents) {
       if (e.evt === "Position" || e.evt === "BotPosition") continue;
       const cfg = EVT[e.evt];
       if (!cfg) continue;
-      const [px, py] = w2p(e.x, e.z, selMap, mapSz);
-      const sz = isSingleMatch ? 7 : 5;
+      const [px, py] = w2p(e.x, e.z, selMap, sz);
+      const msz = (isSingleMatch ? 7 : 5) / Math.sqrt(zoom);
       let sc = 1;
       if (playing) {
         const span = (timeRange[1] - timeRange[0]) * 0.02 || 1,
@@ -610,105 +654,54 @@ export default function App() {
           ctx.globalAlpha = 0.5 + 0.5 * (1 - age);
         }
       }
-      drawMarker(ctx, px, py, cfg.shape, sz * sc, cfg.color);
+      drawMarker(ctx, px, py, cfg.shape, msz * sc, cfg.color);
       ctx.globalAlpha = 1;
     }
-  }, [visEvents, selMap, mapSz, playing, cutTs, timeRange, isSingleMatch]);
-
-  // ═══ CANVAS: PLAYER ICONS ═══
-  useEffect(() => {
-    const c = iconRef.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    c.width = mapSz;
-    c.height = mapSz;
-    ctx.clearRect(0, 0, mapSz, mapSz);
-    if (!isSingleMatch && !playing) return;
-    const latest = {};
-    const ts = playing ? cutTs : Infinity;
-    for (const e of fEvents) {
-      if (e.ts > ts) continue;
-      if (e.evt !== "Position" && e.evt !== "BotPosition") continue;
-      if (!showBots && e.bot) continue;
-      if (selPlayer && e.uid !== selPlayer) continue;
-      if (!latest[e.uid] || e.ts > latest[e.uid].ts) latest[e.uid] = e;
-    }
-    for (const [uid, e] of Object.entries(latest)) {
-      const [px, py] = w2p(e.x, e.z, selMap, mapSz);
-      const isSel = selPlayer === uid;
-      drawIcon(
-        ctx,
-        px,
-        py,
-        e.bot,
-        e.bot ? 8 : 9,
-        isSel ? 1 : e.bot ? 0.8 : 0.95,
-      );
-      if (isSel) {
-        ctx.save();
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.9;
-        ctx.beginPath();
-        ctx.arc(px, py, 14, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+    // ICONS
+    if (isSingleMatch || playing) {
+      const latest = {};
+      const tsL = playing ? cutTs : Infinity;
+      for (const e of fEvents) {
+        if (e.ts > tsL) continue;
+        if (e.evt !== "Position" && e.evt !== "BotPosition") continue;
+        if (!latest[e.uid] || e.ts > latest[e.uid].ts) latest[e.uid] = e;
+      }
+      for (const [uid, e] of Object.entries(latest)) {
+        const [px, py] = w2p(e.x, e.z, selMap, sz);
+        const isSel = selPlayer === uid;
+        const isz = (e.bot ? 8 : 9) / Math.sqrt(zoom);
+        drawIcon(ctx, px, py, e.bot, isz, isSel ? 1 : e.bot ? 0.8 : 0.95);
+        if (isSel) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 2 / zoom;
+          ctx.globalAlpha = 0.9;
+          ctx.beginPath();
+          ctx.arc(px, py, 14 / zoom, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
     }
+    ctx.restore();
   }, [
     visEvents,
     fEvents,
+    allMapEvents,
     selMap,
     mapSz,
+    selPlayer,
+    zoom,
+    camX,
+    camY,
     playing,
     cutTs,
-    showBots,
-    selPlayer,
+    timeRange,
     isSingleMatch,
+    heatMode,
+    heatOpacity,
+    imgLoaded,
   ]);
 
-  // ═══ CANVAS: SMOOTH HEATMAP ═══
-  useEffect(() => {
-    const c = heatRef.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    c.width = mapSz;
-    c.height = mapSz;
-    ctx.clearRect(0, 0, mapSz, mapSz);
-    if (!heatMode) return;
-    const h = buildHeat(allMapEvents, heatMode, selMap, mapSz);
-    if (!h || h.peak === 0) return;
-    const cs = mapSz / h.gs;
-    // Draw to offscreen then blur
-    const off = document.createElement("canvas");
-    off.width = mapSz;
-    off.height = mapSz;
-    const octx = off.getContext("2d");
-    for (let y = 0; y < h.gs; y++)
-      for (let x = 0; x < h.gs; x++) {
-        const v = h.grid[y * h.gs + x];
-        if (v < 0.02) continue;
-        const t = Math.min(1, v / h.peak);
-        octx.fillStyle =
-          h.colors[
-            Math.min(Math.floor(t * (h.colors.length - 1)), h.colors.length - 1)
-          ];
-        octx.globalAlpha = heatOpacity * (0.3 + 0.7 * t);
-        octx.fillRect(x * cs, y * cs, cs + 1, cs + 1);
-      }
-    octx.globalAlpha = 1;
-    // Apply blur for smooth gradients
-    ctx.filter = "blur(6px)";
-    ctx.drawImage(off, 0, 0);
-    ctx.filter = "none";
-  }, [allMapEvents, heatMode, selMap, mapSz, heatOpacity]);
-
-  const toggleEvt = (e) =>
-    setActiveEvts((p) => {
-      const n = new Set(p);
-      n.has(e) ? n.delete(e) : n.add(e);
-      return n;
-    });
   const accent = MAP_CFG[selMap].accent;
   const B = (on, col = "#fff") => ({
     padding: "6px 14px",
@@ -723,7 +716,6 @@ export default function App() {
     transition: "all .12s",
     textAlign: "left",
   });
-
   const StormSVG = ({ size = 14, color = "#44bbff", active = true }) => (
     <svg width={size} height={size} viewBox="0 0 16 16">
       <path
@@ -769,14 +761,7 @@ export default function App() {
           >
             L
           </div>
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              color: "#e4e4e8",
-              letterSpacing: "1px",
-            }}
-          >
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#e4e4e8" }}>
             LILA BLACK
           </div>
         </div>
@@ -810,7 +795,7 @@ export default function App() {
                 animation: "spin .8s linear infinite",
               }}
             />
-            <div style={{ fontSize: 12 }}>Loading player data...</div>
+            <div style={{ fontSize: 12 }}>Loading...</div>
           </div>
         )}
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -862,14 +847,7 @@ export default function App() {
             L
           </div>
           <div>
-            <div
-              style={{
-                fontSize: 14,
-                fontWeight: 700,
-                letterSpacing: ".8px",
-                color: "#f4f4f5",
-              }}
-            >
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#f4f4f5" }}>
               LILA BLACK
             </div>
             <div
@@ -898,11 +876,8 @@ export default function App() {
               key={n}
               onClick={() => {
                 setSelMap(n);
-                setSelMatch("all");
-                setSelPlayer(null);
-                setProgress(0);
-                setPlaying(false);
-                resetZoom();
+                selectMatch("all");
+                resetView();
               }}
               style={{
                 padding: "6px 16px",
@@ -914,7 +889,6 @@ export default function App() {
                 fontFamily: "inherit",
                 background: selMap === n ? c.accent + "20" : "transparent",
                 color: selMap === n ? c.accent : "#9a9aa6",
-                transition: "all .12s",
               }}
             >
               {n}
@@ -933,7 +907,7 @@ export default function App() {
           <button
             onClick={() => {
               setSelDate("all");
-              setSelMatch("all");
+              selectMatch("all");
             }}
             style={{
               padding: "6px 10px",
@@ -942,7 +916,6 @@ export default function App() {
               cursor: "pointer",
               fontSize: 11,
               fontFamily: "inherit",
-              fontWeight: 500,
               background:
                 selDate === "all" ? "rgba(255,255,255,0.1)" : "transparent",
               color: selDate === "all" ? "#e4e4e8" : "#9a9aa6",
@@ -955,7 +928,7 @@ export default function App() {
               key={d}
               onClick={() => {
                 setSelDate(d);
-                setSelMatch("all");
+                selectMatch("all");
               }}
               style={{
                 padding: "6px 8px",
@@ -988,7 +961,6 @@ export default function App() {
           </span>
         </div>
       </div>
-
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* LEFT PANEL */}
         <div
@@ -1048,96 +1020,140 @@ export default function App() {
                       fontWeight: 700,
                     }}
                   >
-                    Visibility
+                    Trails
                   </div>
-                  <button
-                    onClick={() => setShowBots(!showBots)}
-                    style={{
-                      ...B(showBots, "#d4943a"),
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "8px 12px",
-                    }}
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
                   >
-                    <span
-                      style={{ display: "flex", alignItems: "center", gap: 8 }}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 18 18">
-                        <rect
-                          x="3"
-                          y="5"
-                          width="12"
-                          height="10"
-                          rx="2.5"
-                          fill={showBots ? "#c48a30" : "#555"}
-                          stroke={showBots ? "#e8b050" : "#777"}
-                          strokeWidth="1"
-                        />
-                        <rect
-                          x="5"
-                          y="7.5"
-                          width="3"
-                          height="2.5"
-                          rx="0.5"
-                          fill={showBots ? "#ff3333" : "#888"}
-                        />
-                        <rect
-                          x="10"
-                          y="7.5"
-                          width="3"
-                          height="2.5"
-                          rx="0.5"
-                          fill={showBots ? "#ff3333" : "#888"}
-                        />
-                        <line
-                          x1="9"
-                          y1="5"
-                          x2="9"
-                          y2="2"
-                          stroke={showBots ? "#e8b050" : "#777"}
-                          strokeWidth="1.5"
-                        />
-                        <circle
-                          cx="9"
-                          cy="1.5"
-                          r="1.5"
-                          fill={showBots ? "#ff3333" : "#888"}
-                        />
-                      </svg>
-                      <span>Show Bots</span>
-                    </span>
-                    <span
+                    <button
+                      onClick={() => setShowHumanTrails(!showHumanTrails)}
                       style={{
-                        width: 36,
-                        height: 20,
-                        borderRadius: 10,
-                        background: showBots
-                          ? "#d4943a"
-                          : "rgba(255,255,255,0.08)",
+                        ...B(showHumanTrails, "#00dcff"),
+                        width: "100%",
                         display: "flex",
                         alignItems: "center",
-                        padding: "0 3px",
-                        transition: "all .2s",
+                        justifyContent: "space-between",
+                        padding: "8px 12px",
                       }}
                     >
                       <span
                         style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          background: showBots ? "#fff" : "#555",
-                          transform: showBots
-                            ? "translateX(16px)"
-                            : "translateX(0)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <svg width="22" height="6" viewBox="0 0 22 6">
+                          <line
+                            x1="0"
+                            y1="3"
+                            x2="15"
+                            y2="3"
+                            stroke={showHumanTrails ? "#00dcff" : "#555"}
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                          />
+                          <polygon
+                            points="22,3 16,0 16,6"
+                            fill={showHumanTrails ? "#00dcff" : "#555"}
+                          />
+                        </svg>
+                        <span>Human Trails</span>
+                      </span>
+                      <span
+                        style={{
+                          width: 36,
+                          height: 20,
+                          borderRadius: 10,
+                          background: showHumanTrails
+                            ? "#00dcff"
+                            : "rgba(255,255,255,0.08)",
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "0 3px",
                           transition: "all .2s",
                         }}
-                      />
-                    </span>
-                  </button>
+                      >
+                        <span
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            background: showHumanTrails ? "#fff" : "#555",
+                            transform: showHumanTrails
+                              ? "translateX(16px)"
+                              : "translateX(0)",
+                            transition: "all .2s",
+                          }}
+                        />
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setShowBotTrails(!showBotTrails)}
+                      style={{
+                        ...B(showBotTrails, "#d4943a"),
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "8px 12px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <svg width="22" height="6" viewBox="0 0 22 6">
+                          <line
+                            x1="0"
+                            y1="3"
+                            x2="15"
+                            y2="3"
+                            stroke={showBotTrails ? "#d4943a" : "#555"}
+                            strokeWidth="2"
+                            strokeDasharray="4 3"
+                            strokeLinecap="round"
+                          />
+                          <polygon
+                            points="22,3 16,0 16,6"
+                            fill={showBotTrails ? "#d4943a" : "#555"}
+                          />
+                        </svg>
+                        <span>Bot Trails</span>
+                      </span>
+                      <span
+                        style={{
+                          width: 36,
+                          height: 20,
+                          borderRadius: 10,
+                          background: showBotTrails
+                            ? "#d4943a"
+                            : "rgba(255,255,255,0.08)",
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "0 3px",
+                          transition: "all .2s",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            background: showBotTrails ? "#fff" : "#555",
+                            transform: showBotTrails
+                              ? "translateX(16px)"
+                              : "translateX(0)",
+                            transition: "all .2s",
+                          }}
+                        />
+                      </span>
+                    </button>
+                  </div>
                 </div>
-
                 <div>
                   <div
                     style={{
@@ -1149,15 +1165,18 @@ export default function App() {
                       fontWeight: 700,
                     }}
                   >
-                    Event Types
+                    Event Markers
                   </div>
                   <div
                     style={{ display: "flex", flexDirection: "column", gap: 3 }}
                   >
                     {Object.entries(EVT)
                       .filter(([k]) => {
-                        if (k === "BotPosition") return false;
-                        if (!showBots && k === "BotKilled") return false;
+                        if (
+                          (k === "BotKill" || k === "BotKilled") &&
+                          !showBotTrails
+                        )
+                          return false;
                         return true;
                       })
                       .map(([k, c]) => {
@@ -1240,16 +1259,6 @@ export default function App() {
                                     />
                                   </svg>
                                 )}
-                                {c.shape === "dot" && (
-                                  <svg width="14" height="14">
-                                    <circle
-                                      cx="7"
-                                      cy="7"
-                                      r="5"
-                                      fill={isOn ? c.color : "#555"}
-                                    />
-                                  </svg>
-                                )}
                               </span>
                               <span>{c.label}</span>
                             </span>
@@ -1269,7 +1278,6 @@ export default function App() {
                       })}
                   </div>
                 </div>
-
                 <div>
                   <div
                     style={{
@@ -1295,7 +1303,7 @@ export default function App() {
                         style={{
                           ...B(
                             heatMode === m.id,
-                            m.colors[3].replace(/[^,]+\)/, "1)"),
+                            `rgb(${m.colors[3].join(",")})`,
                           ),
                           display: "flex",
                           alignItems: "center",
@@ -1310,7 +1318,7 @@ export default function App() {
                             borderRadius: 3,
                             background:
                               heatMode === m.id
-                                ? `linear-gradient(90deg,${m.colors[1]},${m.colors[3]})`
+                                ? `linear-gradient(90deg,rgb(${m.colors[1].join(",")}),rgb(${m.colors[3].join(",")}))`
                                 : "#444",
                             flexShrink: 0,
                           }}
@@ -1348,7 +1356,6 @@ export default function App() {
                 </div>
               </div>
             )}
-
             {tab === "players" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {selPlayer && (
@@ -1373,14 +1380,12 @@ export default function App() {
                 <div
                   style={{ fontSize: 11, color: "#9a9aa6", marginBottom: 6 }}
                 >
-                  {playerList.length} players visible
+                  {playerList.length} players
                 </div>
-                {playerList.slice(0, 50).map((p) => (
+                {playerList.slice(0, 60).map((p) => (
                   <button
                     key={p.id}
-                    onClick={() =>
-                      setSelPlayer(selPlayer === p.id ? null : p.id)
-                    }
+                    onClick={() => selectPlayer(p.id)}
                     style={{
                       ...B(selPlayer === p.id, accent),
                       display: "flex",
@@ -1483,7 +1488,6 @@ export default function App() {
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                           fontSize: 11,
-                          fontWeight: 500,
                         }}
                       >
                         {p.bot ? `Bot ${p.id}` : p.id.slice(0, 12) + "…"}
@@ -1513,16 +1517,10 @@ export default function App() {
                 ))}
               </div>
             )}
-
             {tab === "matches" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 <button
-                  onClick={() => {
-                    setSelMatch("all");
-                    setSelPlayer(null);
-                    setProgress(0);
-                    setPlaying(false);
-                  }}
+                  onClick={() => selectMatch("all")}
                   style={{
                     ...B(selMatch === "all", "#d4d4d8"),
                     marginBottom: 4,
@@ -1533,12 +1531,7 @@ export default function App() {
                 {fMatches.map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => {
-                      setSelMatch(m.id);
-                      setSelPlayer(null);
-                      setProgress(0);
-                      setPlaying(false);
-                    }}
+                    onClick={() => selectMatch(m.id)}
                     style={{
                       ...B(selMatch === m.id, accent),
                       padding: "8px 12px",
@@ -1566,59 +1559,8 @@ export default function App() {
                         color: "#c4c4cc",
                       }}
                     >
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 3,
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 18 18">
-                          <circle cx="9" cy="5" r="3" fill="#00dcff" />
-                          <line
-                            x1="9"
-                            y1="8"
-                            x2="9"
-                            y2="13"
-                            stroke="#66eeff"
-                            strokeWidth="1"
-                          />
-                        </svg>{" "}
-                        {m.humans}
-                      </span>
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 3,
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 18 18">
-                          <rect
-                            x="3"
-                            y="5"
-                            width="12"
-                            height="10"
-                            rx="2"
-                            fill="#c48a30"
-                          />
-                          <rect
-                            x="5"
-                            y="7.5"
-                            width="3"
-                            height="2.5"
-                            fill="#ff3333"
-                          />
-                          <rect
-                            x="10"
-                            y="7.5"
-                            width="3"
-                            height="2.5"
-                            fill="#ff3333"
-                          />
-                        </svg>{" "}
-                        {m.bots}
-                      </span>
+                      <span>🧑 {m.humans}</span>
+                      <span>🤖 {m.bots}</span>
                     </div>
                   </button>
                 ))}
@@ -1626,8 +1568,7 @@ export default function App() {
             )}
           </div>
         </div>
-
-        {/* CENTER: MAP WITH ZOOM + PAN */}
+        {/* CENTER MAP */}
         <div
           ref={containerRef}
           style={{
@@ -1641,9 +1582,6 @@ export default function App() {
           }}
         >
           <div
-            ref={mapWrapRef}
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
             style={{
               position: "relative",
               width: mapSz,
@@ -1651,91 +1589,20 @@ export default function App() {
               borderRadius: 10,
               overflow: "hidden",
               border: `1px solid ${accent}15`,
-              boxShadow: `0 0 80px ${accent}08, 0 8px 40px rgba(0,0,0,0.5)`,
-              cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
+              boxShadow: `0 0 80px ${accent}08,0 8px 40px rgba(0,0,0,0.5)`,
             }}
           >
-            {/* Zoom/pan transform wrapper */}
-            <div
+            <canvas
+              ref={mainCanvasRef}
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
               style={{
-                position: "absolute",
-                inset: 0,
-                transform: `scale(${zoom}) translate(${panX / zoom}px, ${panY / zoom}px)`,
-                transformOrigin: "0 0",
-                transition: dragging ? "none" : "transform 0.1s ease-out",
+                width: "100%",
+                height: "100%",
+                cursor:
+                  zoom > 1 ? (dragging ? "grabbing" : "grab") : "crosshair",
               }}
-            >
-              <img
-                src={MAP_CFG[selMap].img}
-                alt={selMap}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  zIndex: 0,
-                  opacity: 0.5,
-                }}
-                onError={(e) => {
-                  e.target.style.display = "none";
-                }}
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: `radial-gradient(ellipse at 40% 40%, ${MAP_CFG[selMap].bg} 0%, #0a0a10 100%)`,
-                  zIndex: -1,
-                }}
-              />
-              <canvas
-                ref={heatRef}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  zIndex: 1,
-                  pointerEvents: "none",
-                }}
-              />
-              <canvas
-                ref={trailRef}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  zIndex: 2,
-                  pointerEvents: "none",
-                }}
-              />
-              <canvas
-                ref={eventRef}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  zIndex: 3,
-                  pointerEvents: "none",
-                }}
-              />
-              <canvas
-                ref={iconRef}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  zIndex: 4,
-                  pointerEvents: "none",
-                }}
-              />
-            </div>
-
-            {/* Map overlay UI (not affected by zoom) */}
+            />
             <div
               style={{
                 position: "absolute",
@@ -1751,6 +1618,7 @@ export default function App() {
                 letterSpacing: "1px",
                 color: accent,
                 border: `1px solid ${accent}25`,
+                pointerEvents: "none",
               }}
             >
               {selMap.toUpperCase()}
@@ -1770,13 +1638,12 @@ export default function App() {
                   color: "#c4c4cc",
                   border: "1px solid rgba(255,255,255,0.1)",
                   fontWeight: 600,
+                  pointerEvents: "none",
                 }}
               >
                 Match: {selMatch.slice(0, 8)}
               </div>
             )}
-
-            {/* Zoom controls */}
             <div
               style={{
                 position: "absolute",
@@ -1789,76 +1656,76 @@ export default function App() {
               }}
             >
               <button
-                onClick={() => setZoom((z) => Math.min(6, z * 1.3))}
+                onClick={() => setZoom((z) => Math.min(8, z * 1.4))}
                 style={{
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   borderRadius: 6,
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(0,0,0,0.6)",
                   color: "#c4c4cc",
                   cursor: "pointer",
-                  fontSize: 16,
+                  fontSize: 18,
                   fontFamily: "inherit",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backdropFilter: "blur(4px)",
                 }}
               >
                 +
               </button>
               <button
-                onClick={() => {
-                  const nz = Math.max(1, zoom / 1.3);
-                  setZoom(nz);
-                  if (nz === 1) {
-                    setPanX(0);
-                    setPanY(0);
-                  }
-                }}
+                onClick={() =>
+                  setZoom((z) => {
+                    const nz = Math.max(1, z / 1.4);
+                    if (nz <= 1.05) {
+                      setCamX(0);
+                      setCamY(0);
+                      return 1;
+                    }
+                    return nz;
+                  })
+                }
                 style={{
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   borderRadius: 6,
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(0,0,0,0.6)",
                   color: "#c4c4cc",
                   cursor: "pointer",
-                  fontSize: 16,
+                  fontSize: 18,
                   fontFamily: "inherit",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backdropFilter: "blur(4px)",
                 }}
               >
                 −
               </button>
-              {zoom > 1 && (
+              {zoom > 1.05 && (
                 <button
-                  onClick={resetZoom}
+                  onClick={resetView}
                   style={{
-                    width: 30,
-                    height: 30,
+                    width: 32,
+                    height: 32,
                     borderRadius: 6,
                     border: "1px solid rgba(255,255,255,0.12)",
                     background: "rgba(0,0,0,0.6)",
                     color: "#c4c4cc",
                     cursor: "pointer",
-                    fontSize: 11,
+                    fontSize: 12,
                     fontFamily: "inherit",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    backdropFilter: "blur(4px)",
                   }}
                 >
                   ↺
                 </button>
               )}
             </div>
-            {zoom > 1 && (
+            {zoom > 1.05 && (
               <div
                 style={{
                   position: "absolute",
@@ -1870,15 +1737,13 @@ export default function App() {
                   borderRadius: 4,
                   fontSize: 10,
                   color: "#9a9aa6",
-                  backdropFilter: "blur(4px)",
+                  pointerEvents: "none",
                 }}
               >
                 {zoom.toFixed(1)}×
               </div>
             )}
           </div>
-
-          {/* PLAYBACK */}
           <div
             style={{
               width: mapSz,
@@ -1945,7 +1810,7 @@ export default function App() {
               >
                 <span>{Math.round(progress * 100)}% timeline</span>
                 <span style={{ color: "#c4c4cc" }}>
-                  {visEvents.length.toLocaleString()} events visible
+                  {visEvents.length.toLocaleString()} visible
                 </span>
               </div>
             </div>
@@ -2000,12 +1865,10 @@ export default function App() {
           </div>
           {!isSingleMatch && !playing && (
             <div style={{ marginTop: 8, fontSize: 11, color: "#666" }}>
-              💡 Select a match → press ▶ to watch journeys animate · Scroll to
-              zoom
+              💡 Select a match to see full detail · Scroll to zoom
             </div>
           )}
         </div>
-
         {/* RIGHT PANEL */}
         <div
           style={{
@@ -2090,7 +1953,7 @@ export default function App() {
                     stroke="#66eeff"
                     strokeWidth="1"
                   />
-                </svg>
+                </svg>{" "}
                 Human Player
               </div>
               <div
@@ -2124,7 +1987,7 @@ export default function App() {
                     strokeWidth="1.2"
                   />
                   <circle cx="9" cy="1.5" r="1.2" fill="#ff3333" />
-                </svg>
+                </svg>{" "}
                 Bot (AI)
               </div>
               <div
@@ -2252,7 +2115,7 @@ export default function App() {
                     strokeLinecap="round"
                   />
                   <polygon points="22,3 16,0 16,6" fill="#00dcff" />
-                </svg>
+                </svg>{" "}
                 Human Path
               </div>
               <div
@@ -2276,12 +2139,11 @@ export default function App() {
                     strokeLinecap="round"
                   />
                   <polygon points="22,3 16,0 16,6" fill="#d4943a" />
-                </svg>
+                </svg>{" "}
                 Bot Path
               </div>
             </div>
           </div>
-
           <div
             style={{
               fontSize: 10,
